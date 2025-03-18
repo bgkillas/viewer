@@ -7,11 +7,11 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 fn main() -> eframe::Result {
-    Ok(eframe::run_native(
+    eframe::run_native(
         "viewer",
         eframe::NativeOptions::default(),
         Box::new(|_cc| Ok(Box::new(App::new()?))),
-    )?)
+    )
 }
 #[derive(PartialEq, Clone)]
 struct Chapter {
@@ -37,9 +37,7 @@ impl Display for Page {
             f,
             "{}{}",
             self.chapter,
-            self.page
-                .map(|p| format!("-{:03}", p))
-                .unwrap_or_default()
+            self.page.map(|p| format!("-{:03}", p)).unwrap_or_default()
         )
     }
 }
@@ -75,10 +73,10 @@ struct App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         CentralPanel::default()
             .frame(egui::Frame::default().fill(Color32::from_rgb(0, 0, 0)))
-            .show(ctx, |ui| self.main(ctx, ui, frame).unwrap());
+            .show(ctx, |ui| self.main(ctx, ui).unwrap());
     }
 }
 impl App {
@@ -94,14 +92,16 @@ impl App {
         if !fs::exists(&data)? || !fs::exists(&image_path)? {
             Err(eyre!("bad paths"))
         } else {
-            let raw = fs::read_to_string(&data)?
-                .trim().to_string();
+            let raw = fs::read_to_string(&data)?.trim().to_string();
             let is_list = !raw.contains('-');
             let current = Page::parse(&raw, is_list)?;
             let images = Default::default();
             let mut pages = Vec::new();
             for p in fs::read_dir(&image_path)? {
-                pages.push(Page::parse(p?.path().file_name().unwrap().to_str().unwrap(), is_list)?)
+                pages.push(Page::parse(
+                    p?.path().file_name().unwrap().to_str().unwrap(),
+                    is_list,
+                )?)
             }
             let current = pages
                 .iter()
@@ -122,7 +122,10 @@ impl App {
     }
     fn get_img(&mut self, ui: &mut egui::Ui, num: usize) -> eyre::Result<()> {
         let p = &self.pages[num];
-        let img = ImageReader::open(self.get_path(p))?.with_guessed_format()?.decode()?.to_rgb8();
+        let img = ImageReader::open(self.get_path(p))?
+            .with_guessed_format()?
+            .decode()?
+            .to_rgb8();
         let color_image = egui::ColorImage::from_rgb(
             [img.width() as usize, img.height() as usize],
             img.as_flat_samples().as_slice(),
@@ -133,7 +136,7 @@ impl App {
         self.images.insert(num, tex);
         Ok(())
     }
-    fn main(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, frame: &mut eframe::Frame) -> eyre::Result<()> {
+    fn main(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) -> eyre::Result<()> {
         {
             let range = self.current.saturating_sub(1)..(self.current + 2).min(self.pages.len());
             let mut to_remove = Vec::new();
@@ -156,7 +159,10 @@ impl App {
         let image = self.images.get(&self.current).unwrap();
         let size = image.size();
         let rect = Rect::from_min_size(
-            Pos2::new(ctx.input(|i| i.screen_rect).width() / 2.0 - size[0] as f32 / 2.0, 0.0),
+            Pos2::new(
+                ctx.input(|i| i.screen_rect).width() / 2.0 - size[0] as f32 / 2.0,
+                0.0,
+            ),
             Vec2::new(size[0] as f32, size[1] as f32),
         );
         painter.image(
