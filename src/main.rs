@@ -1,4 +1,6 @@
-use egui::{CentralPanel, Color32, Key, Pos2, Rect, TextureHandle, TextureOptions, Vec2, pos2};
+use egui::{
+    CentralPanel, Color32, Key, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2, pos2,
+};
 use eyre::{ContextCompat, eyre};
 use image::{ImageReader, RgbImage};
 use std::cmp::Ordering;
@@ -103,6 +105,9 @@ struct App {
     pages: Vec<Page>,
     current: usize,
     is_list: bool,
+    x: f32,
+    y: f32,
+    zoom: f32,
 }
 
 impl eframe::App for App {
@@ -148,6 +153,9 @@ impl App {
                 is_list,
                 pages,
                 current,
+                x: 0.0,
+                y: 0.0,
+                zoom: 1.0,
             })
         }
     }
@@ -224,11 +232,38 @@ impl App {
             self.pages[self.current].to_string().as_bytes(),
         )?)
     }
+    fn display(&self, image: &TextureHandle, painter: &Painter, ctx: &egui::Context) {
+        let size = image.size();
+        let window = ctx.input(|i| i.screen_rect);
+        let scale = if !self.is_list && size[1] as f32 > window.height() {
+            window.height() / size[1] as f32
+        } else {
+            1.0
+        };
+        let rect = Rect::from_min_size(
+            Pos2::new(
+                window.width() / 2.0 - size[0] as f32 / 2.0 * scale * self.zoom
+                    + self.x * self.zoom,
+                self.y * self.zoom,
+            ),
+            Vec2::new(
+                size[0] as f32 * scale * self.zoom,
+                size[1] as f32 * scale * self.zoom,
+            ),
+        );
+        painter.image(
+            image.id(),
+            rect,
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    }
     fn main(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) -> eyre::Result<()> {
         self.update_cache(ui, ctx)?;
         ui.input(|i| {
             if i.key_pressed(Key::Z) {
                 if self.current != 0 {
+                    (self.x, self.y, self.zoom) = (0.0, 0.0, 1.0);
                     self.current -= 1;
                     self.save_path()
                 } else {
@@ -236,59 +271,43 @@ impl App {
                 }
             } else if i.key_pressed(Key::C) {
                 if self.current != self.pages.len() - 1 {
+                    (self.x, self.y, self.zoom) = (0.0, 0.0, 1.0);
                     self.current += 1;
                     self.save_path()
                 } else {
                     Ok(())
                 }
             } else {
+                if i.key_pressed(Key::A) {
+                    self.x += 64.0 / self.zoom
+                }
+                if i.key_pressed(Key::D) {
+                    self.x -= 64.0 / self.zoom
+                }
+                if i.key_pressed(Key::W) {
+                    self.y += 64.0 / self.zoom
+                }
+                if i.key_pressed(Key::S) {
+                    self.y -= 64.0 / self.zoom
+                }
+                if i.key_pressed(Key::Q) {
+                    self.zoom /= 2.0
+                }
+                if i.key_pressed(Key::E) {
+                    self.zoom *= 2.0
+                }
                 Ok(())
             }
         })?;
         let painter = ui.painter();
         match self.images.get(&self.current).unwrap() {
-            Textures::One(image) => {
-                let size = image.size();
-                let window = ctx.input(|i| i.screen_rect);
-                let scale = if !self.is_list && size[1] as f32 > window.height() {
-                    window.height() / size[1] as f32
-                } else {
-                    1.0
-                };
-                let rect = Rect::from_min_size(
-                    Pos2::new(window.width() / 2.0 - size[0] as f32 / 2.0 * scale, 0.0),
-                    Vec2::new(size[0] as f32 * scale, size[1] as f32 * scale),
-                );
-                painter.image(
-                    image.id(),
-                    rect,
-                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-            }
+            Textures::One(image) => self.display(image, painter, ctx),
             Textures::Some(l) => {
-                for (i, image) in l.iter().enumerate() {
-                    let size = image.size();
-                    let window = ctx.input(|i| i.screen_rect);
-                    let scale = if !self.is_list && size[1] as f32 > window.height() {
-                        window.height() / size[1] as f32
-                    } else {
-                        1.0
-                    };
-                    let rect = Rect::from_min_size(
-                        Pos2::new(
-                            window.width() / 2.0 - size[0] as f32 / 2.0 * scale,
-                            (i * CHUNK as usize) as f32,
-                        ),
-                        Vec2::new(size[0] as f32 * scale, size[1] as f32 * scale),
-                    );
-                    painter.image(
-                        image.id(),
-                        rect,
-                        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                        Color32::WHITE,
-                    );
+                for image in l {
+                    self.display(image, painter, ctx);
+                    self.y += CHUNK as f32;
                 }
+                self.y -= (CHUNK as usize * l.len()) as f32
             }
         }
         Ok(())
