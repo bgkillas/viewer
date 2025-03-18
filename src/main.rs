@@ -1,5 +1,6 @@
 use egui::{
-    CentralPanel, Color32, Key, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2, pos2,
+    CentralPanel, Color32, CursorIcon, Key, Painter, Pos2, Rect, TextureHandle, TextureOptions,
+    Vec2, pos2,
 };
 use eyre::{ContextCompat, eyre};
 use image::{ImageReader, RgbImage};
@@ -7,11 +8,11 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
+use std::thread::{JoinHandle, spawn};
 use std::{env, fs};
 const CHUNK: u32 = 16384;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_fullscreen(true),
         ..Default::default()
     };
     eframe::run_native("viewer", options, Box::new(|_cc| Ok(Box::new(App::new()?))))
@@ -102,6 +103,7 @@ struct App {
     data: PathBuf,
     image_path: PathBuf,
     images: HashMap<usize, Textures>,
+    image_tasks: HashMap<usize, JoinHandle<eyre::Result<Vec<egui::ColorImage>>>>,
     pages: Vec<Page>,
     current: usize,
     is_list: bool,
@@ -153,6 +155,7 @@ impl App {
                 is_list,
                 pages,
                 current,
+                image_tasks: Default::default(),
                 x: 0.0,
                 y: 0.0,
                 zoom: 1.0,
@@ -182,7 +185,7 @@ impl App {
                 let tex = ui.ctx().load_texture(
                     format!("{}_{}", p, i),
                     color_image,
-                    TextureOptions::NEAREST,
+                    TextureOptions::LINEAR,
                 );
                 texs.push(tex);
             }
@@ -194,10 +197,32 @@ impl App {
             );
             let tex = ui
                 .ctx()
-                .load_texture(p.to_string(), color_image, TextureOptions::NEAREST);
+                .load_texture(p.to_string(), color_image, TextureOptions::LINEAR);
             self.images.insert(num, Textures::One(tex));
         }
         Ok(())
+    }
+    fn insert_images(&mut self, ui: &mut egui::Ui, num: usize, mut images: Vec<egui::ColorImage>) {
+        if images.len() == 1 {
+            let color_image = images.remove(0);
+            let tex = ui.ctx().load_texture(
+                self.pages[num].to_string(),
+                color_image,
+                TextureOptions::LINEAR,
+            );
+            self.images.insert(num, Textures::One(tex));
+        } else {
+            let mut texs = Vec::new();
+            for color_image in images {
+                let tex = ui.ctx().load_texture(
+                    self.pages[num].to_string(),
+                    color_image,
+                    TextureOptions::LINEAR,
+                );
+                texs.push(tex);
+            }
+            self.images.insert(num, Textures::Some(texs));
+        }
     }
     fn update_cache(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> eyre::Result<()> {
         let range = self.current.saturating_sub(2)..(self.current + 3).min(self.pages.len());
@@ -219,9 +244,31 @@ impl App {
         for i in to_remove {
             self.images.remove(&i);
         }
+        let mut to_remove = Vec::new();
+        for i in self.image_tasks.keys() {
+            if !range.contains(i) {
+                to_remove.push(*i);
+            }
+        }
+        for i in to_remove {
+            if let Some(t) = self.image_tasks.remove(&i) {
+                t.join().unwrap()?;
+            }
+        }
         for i in range {
             if !self.images.contains_key(&i) {
-                self.get_img(ui, i)?
+                if i == self.current {
+                    if let Some(task) = self.image_tasks.remove(&i) {
+                        self.insert_images(ui, i, task.join().unwrap()?)
+                    } else {
+                        self.get_img(ui, i)?;
+                    }
+                } else if !self.image_tasks.contains_key(&i) {
+                    let page = self.pages[i].clone();
+                    let image_path = self.image_path.clone();
+                    self.image_tasks
+                        .insert(i, spawn(move || get_imgs(page, image_path)));
+                }
             }
         }
         Ok(())
@@ -259,7 +306,7 @@ impl App {
         );
     }
     fn main(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) -> eyre::Result<()> {
-        self.update_cache(ui, ctx)?;
+        ctx.set_cursor_icon(CursorIcon::None);
         ui.input(|i| {
             if i.key_pressed(Key::Z) {
                 if self.current != 0 {
@@ -291,14 +338,15 @@ impl App {
                     self.y -= 64.0 / self.zoom
                 }
                 if i.key_pressed(Key::Q) {
-                    self.zoom /= 2.0
+                    self.zoom /= 1.5
                 }
                 if i.key_pressed(Key::E) {
-                    self.zoom *= 2.0
+                    self.zoom *= 1.5
                 }
                 Ok(())
             }
         })?;
+        self.update_cache(ui, ctx)?;
         let painter = ui.painter();
         match self.images.get(&self.current).unwrap() {
             Textures::One(image) => self.display(image, painter, ctx),
@@ -310,6 +358,67 @@ impl App {
                 self.y -= (CHUNK as usize * l.len()) as f32
             }
         }
+        let rect = ui.max_rect();
+        let bottom_left = Rect::from_min_size(
+            rect.left_bottom() - egui::vec2(0.0, 48.0),
+            egui::vec2(rect.width(), 48.0),
+        );
+        ui.painter().text(
+            bottom_left.left_bottom(),
+            egui::Align2::LEFT_BOTTOM,
+            if self.is_list {
+                let h = match self.images.get(&self.current).unwrap() {
+                    Textures::One(tex) => tex.size()[1],
+                    Textures::Some(tex) => {
+                        tex.last().unwrap().size()[1] + CHUNK as usize * (tex.len() - 1)
+                    }
+                };
+                format!(
+                    "{:03}\n{}/{}",
+                    ((-self.y) as usize * 100) / h,
+                    self.pages[self.current],
+                    self.pages.last().unwrap()
+                )
+            } else {
+                format!(
+                    "{}/{}\n{}/{}\n{:03}/{:03}",
+                    self.current,
+                    self.pages.len(),
+                    self.pages[self.current].chapter,
+                    self.pages.last().unwrap().chapter,
+                    self.pages[self.current].page.unwrap(),
+                    self.pages.last().unwrap().page.unwrap()
+                )
+            },
+            egui::FontId::monospace(16.0),
+            Color32::WHITE,
+        );
+
         Ok(())
+    }
+}
+fn get_imgs(p: Page, image_path: PathBuf) -> eyre::Result<Vec<egui::ColorImage>> {
+    let img = ImageReader::open(image_path.join(p.to_string()))?
+        .with_guessed_format()?
+        .decode()?
+        .to_rgb8();
+    let (width, height) = img.dimensions();
+    if height > CHUNK {
+        let mut texs = Vec::new();
+        for start_y in (0..height).step_by(CHUNK as usize) {
+            let actual_height = (start_y + CHUNK).min(height) - start_y;
+            let img =
+                RgbImage::from_fn(width, actual_height, |x, y| *img.get_pixel(x, start_y + y));
+            texs.push(egui::ColorImage::from_rgb(
+                [img.width() as usize, img.height() as usize],
+                img.as_flat_samples().as_slice(),
+            ))
+        }
+        Ok(texs)
+    } else {
+        Ok(vec![egui::ColorImage::from_rgb(
+            [width as usize, height as usize],
+            img.as_flat_samples().as_slice(),
+        )])
     }
 }
