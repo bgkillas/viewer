@@ -340,7 +340,7 @@ impl App {
                     Ok(())
                 }
             } else if i.key_pressed(Key::C) {
-                if self.current < self.pages.len() {
+                if self.current + 1 < self.pages.len() {
                     (self.x, self.y, self.zoom) = (0.0, 0.0, 1.0);
                     self.current += 1;
                     if !self.is_list || self.current != self.pages.len() - 1 {
@@ -403,7 +403,7 @@ impl App {
                     }
                 };
                 let p = ((-self.y) as usize * 100) / h;
-                if p > 90 && self.current == self.images.len() - 1 && !self.dont_save {
+                if p > 90 && self.current == self.pages.len() - 1 && !self.dont_save {
                     self.dont_save = true;
                     self.save_path()?;
                 }
@@ -416,7 +416,7 @@ impl App {
             } else {
                 format!(
                     "{}/{}\n{}/{}\n{:03}/{:03}",
-                    self.current,
+                    self.current + 1,
                     self.pages.len(),
                     self.pages[self.current].chapter,
                     self.pages.last().unwrap().chapter,
