@@ -194,15 +194,16 @@ impl App {
             .decode()?
             .to_rgb8();
         let (width, height) = img.dimensions();
+        let samples = img.into_flat_samples();
         if height > CHUNK {
             let mut texs = Vec::new();
             for (i, start_y) in (0..height).step_by(CHUNK as usize).enumerate() {
                 let actual_height = (start_y + CHUNK).min(height) - start_y;
-                let img =
-                    RgbImage::from_fn(width, actual_height, |x, y| *img.get_pixel(x, start_y + y));
                 let color_image = egui::ColorImage::from_rgb(
-                    [img.width() as usize, img.height() as usize],
-                    img.as_flat_samples().as_slice(),
+                    [width as usize, actual_height as usize],
+                    &samples.as_slice()[width as usize * CHUNK as usize * i * 3
+                        ..(width as usize * CHUNK as usize * (i + 1) * 3)
+                            .min((width * height * 3) as usize)],
                 );
                 let tex = ui.ctx().load_texture(
                     format!("{}_{}", p, i),
@@ -213,10 +214,8 @@ impl App {
             }
             self.images.insert(num, Textures::Some(texs));
         } else {
-            let color_image = egui::ColorImage::from_rgb(
-                [width as usize, height as usize],
-                img.as_flat_samples().as_slice(),
-            );
+            let color_image =
+                egui::ColorImage::from_rgb([width as usize, height as usize], samples.as_slice());
             let tex = ui
                 .ctx()
                 .load_texture(p.to_string(), color_image, TextureOptions::LINEAR);
