@@ -1,6 +1,6 @@
 use egui::{
-    CentralPanel, Color32, CursorIcon, Key, Painter, Pos2, Rect, TextureHandle, TextureOptions,
-    Vec2, pos2,
+    CentralPanel, Color32, CursorIcon, FontData, FontDefinitions, FontFamily, FontId, Key, Painter,
+    Pos2, Rect, TextureHandle, TextureOptions, Vec2, pos2,
 };
 use eyre::{ContextCompat, eyre};
 use image::{ImageReader, RgbImage};
@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread::{JoinHandle, spawn};
 use std::{env, fs};
 const CHUNK: u32 = 16384;
@@ -15,7 +16,26 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         ..Default::default()
     };
-    eframe::run_native("viewer", options, Box::new(|_cc| Ok(Box::new(App::new()?))))
+    eframe::run_native(
+        "viewer",
+        options,
+        Box::new(|cc| {
+            let mut fonts = FontDefinitions::default();
+            fonts.font_data.insert(
+                "terminus".to_owned(),
+                Arc::from(FontData::from_static(include_bytes!(
+                    "/usr/share/fonts/TTF/TerminessNerdFontMono-Regular.ttf"
+                ))),
+            );
+            fonts
+                .families
+                .get_mut(&FontFamily::Monospace)
+                .unwrap()
+                .insert(0, "terminus".to_owned());
+            cc.egui_ctx.set_fonts(fonts);
+            Ok(Box::new(App::new()?))
+        }),
+    )
 }
 #[derive(PartialEq, Clone)]
 struct Chapter {
@@ -110,6 +130,7 @@ struct App {
     x: f32,
     y: f32,
     zoom: f32,
+    dont_save: bool,
 }
 
 impl eframe::App for App {
@@ -156,6 +177,7 @@ impl App {
                 pages,
                 current,
                 image_tasks: Default::default(),
+                dont_save: false,
                 x: 0.0,
                 y: 0.0,
                 zoom: 1.0,
@@ -309,23 +331,38 @@ impl App {
         ctx.set_cursor_icon(CursorIcon::None);
         ui.input(|i| {
             if i.key_pressed(Key::Z) {
-                if self.current != 0 {
+                if self.current > 0 {
                     (self.x, self.y, self.zoom) = (0.0, 0.0, 1.0);
                     self.current -= 1;
+                    self.dont_save = false;
                     self.save_path()
                 } else {
                     Ok(())
                 }
             } else if i.key_pressed(Key::C) {
-                if self.current != self.pages.len() - 1 {
+                if self.current < self.pages.len() {
                     (self.x, self.y, self.zoom) = (0.0, 0.0, 1.0);
                     self.current += 1;
-                    self.save_path()
+                    if !self.is_list || self.current != self.pages.len() - 1 || {
+                        let h = match self.images.get(&self.current).unwrap() {
+                            Textures::One(tex) => tex.size()[1],
+                            Textures::Some(tex) => {
+                                tex.last().unwrap().size()[1] + CHUNK as usize * (tex.len() - 1)
+                            }
+                        };
+                        ((-self.y) as usize * 100) / h > 90
+                    } {
+                        self.dont_save = false;
+                        self.save_path()
+                    } else {
+                        Ok(())
+                    }
                 } else {
                     Ok(())
                 }
             } else {
                 if i.key_pressed(Key::A) {
+                    //TODO shift+*, and snap to edges
                     self.x += 64.0 / self.zoom
                 }
                 if i.key_pressed(Key::D) {
@@ -373,9 +410,14 @@ impl App {
                         tex.last().unwrap().size()[1] + CHUNK as usize * (tex.len() - 1)
                     }
                 };
+                let p = ((-self.y) as usize * 100) / h;
+                if p > 90 && self.current == self.images.len() - 1 && !self.dont_save {
+                    self.dont_save = true;
+                    self.save_path()?;
+                }
                 format!(
                     "{:03}\n{}/{}",
-                    ((-self.y) as usize * 100) / h,
+                    p,
                     self.pages[self.current],
                     self.pages.last().unwrap()
                 )
@@ -390,7 +432,7 @@ impl App {
                     self.pages.last().unwrap().page.unwrap()
                 )
             },
-            egui::FontId::monospace(16.0),
+            FontId::monospace(16.0),
             Color32::WHITE,
         );
 
