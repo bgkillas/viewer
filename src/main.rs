@@ -343,15 +343,7 @@ impl App {
                 if self.current < self.pages.len() {
                     (self.x, self.y, self.zoom) = (0.0, 0.0, 1.0);
                     self.current += 1;
-                    if !self.is_list || self.current != self.pages.len() - 1 || {
-                        let h = match self.images.get(&self.current).unwrap() {
-                            Textures::One(tex) => tex.size()[1],
-                            Textures::Some(tex) => {
-                                tex.last().unwrap().size()[1] + CHUNK as usize * (tex.len() - 1)
-                            }
-                        };
-                        ((-self.y) as usize * 100) / h > 90
-                    } {
+                    if !self.is_list || self.current != self.pages.len() - 1 {
                         self.dont_save = false;
                         self.save_path()
                     } else {
