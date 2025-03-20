@@ -6,6 +6,7 @@ use eyre::{ContextCompat, eyre};
 use image::{ImageReader, RgbImage};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::env::args;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -148,8 +149,29 @@ impl App {
             .to_str()
             .unwrap()
             .to_string();
-        let data = Path::new("/home/.p").join(&name);
-        let image_path = Path::new("/home/.m").join(&name);
+        let args = args().collect::<Vec<String>>();
+        let p2 = args
+            .iter()
+            .find_map(|l| {
+                if l.contains("--pages=") {
+                    Some(l.chars().skip(8).collect::<String>())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("/home/.p/".to_string());
+        let p3 = args
+            .iter()
+            .find_map(|l| {
+                if l.contains("--save=") {
+                    Some(l.chars().skip(7).collect::<String>())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or("/home/.m/".to_string());
+        let data = Path::new(&p2).join(&name);
+        let image_path = Path::new(&p3).join(&name);
         if !fs::exists(&data)? || !fs::exists(&image_path)? {
             Err(eyre!("bad paths"))
         } else {
