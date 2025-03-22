@@ -6,7 +6,6 @@ edition = "2024"
 [profile.release]
 lto = true
 strip = true
-panic = "abort"
 
 [dependencies]
 egui="0.31.1"

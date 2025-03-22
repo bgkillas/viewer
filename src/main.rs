@@ -211,10 +211,9 @@ impl App {
     }
     fn get_img(&mut self, ui: &mut egui::Ui, num: usize) -> eyre::Result<()> {
         let p = &self.pages[num];
-        let img = ImageReader::open(self.get_path(p))?
-            .with_guessed_format()?
-            .decode()?
-            .to_rgb8();
+        let mut img = ImageReader::open(self.get_path(p))?.with_guessed_format()?;
+        img.no_limits();
+        let img = img.decode()?.to_rgb8();
         let (width, height) = img.dimensions();
         let samples = img.into_flat_samples();
         if height > CHUNK {
@@ -453,10 +452,9 @@ impl App {
     }
 }
 fn get_imgs(p: Page, image_path: PathBuf) -> eyre::Result<Vec<egui::ColorImage>> {
-    let img = ImageReader::open(image_path.join(p.to_string()))?
-        .with_guessed_format()?
-        .decode()?
-        .to_rgb8();
+    let mut img = ImageReader::open(image_path.join(p.to_string()))?.with_guessed_format()?;
+    img.no_limits();
+    let img = img.decode()?.to_rgb8();
     let (width, height) = img.dimensions();
     if height > CHUNK {
         let mut texs = Vec::new();
