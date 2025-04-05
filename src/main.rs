@@ -6,6 +6,7 @@ use eyre::{ContextCompat, eyre};
 use image::{ImageReader, RgbImage};
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::env::args;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
@@ -305,11 +306,10 @@ impl App {
                     } else {
                         self.get_img(ui, i)?;
                     }
-                } else if !self.image_tasks.contains_key(&i) {
+                } else if let Entry::Vacant(e) = self.image_tasks.entry(i) {
                     let page = self.pages[i].clone();
                     let image_path = self.image_path.clone();
-                    self.image_tasks
-                        .insert(i, spawn(move || get_imgs(page, image_path)));
+                    e.insert(spawn(move || get_imgs(page, image_path)));
                 }
             }
         }
@@ -441,7 +441,13 @@ impl App {
                     self.pages[self.current].chapter,
                     self.pages.last().unwrap().chapter,
                     self.pages[self.current].page.unwrap(),
-                    self.pages.last().unwrap().page.unwrap()
+                    self.pages
+                        .iter()
+                        .filter(|p| p.chapter == self.pages[self.current].chapter)
+                        .next_back()
+                        .unwrap()
+                        .page
+                        .unwrap()
                 )
             },
             FontId::monospace(16.0),
