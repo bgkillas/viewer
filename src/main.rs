@@ -324,7 +324,7 @@ impl App {
     fn display(&self, image: &TextureHandle, painter: &Painter, ctx: &egui::Context) {
         let size = image.size();
         let window = ctx.input(|i| i.screen_rect);
-        let scale = if !self.is_list && size[1] as f32 > window.height() {
+        let scale = if !self.is_list {
             window.height() / size[1] as f32
         } else {
             1.0
