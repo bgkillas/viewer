@@ -1,6 +1,6 @@
 use egui::{
     CentralPanel, Color32, CursorIcon, FontData, FontDefinitions, FontFamily, FontId, Key, Painter,
-    Pos2, Rect, TextureHandle, TextureOptions, Vec2, pos2,
+    Pos2, Rect, TextureHandle, TextureOptions, Vec2, ViewportBuilder, pos2,
 };
 use eyre::{ContextCompat, eyre};
 use image::{ImageReader, RgbImage};
@@ -16,6 +16,10 @@ use std::{env, fs};
 const CHUNK: u32 = 16384;
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
+        viewport: ViewportBuilder {
+            fullscreen: Some(true),
+            ..Default::default()
+        },
         ..Default::default()
     };
     eframe::run_native(
